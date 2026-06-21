@@ -107,6 +107,15 @@ python -m src.main "无线蓝牙耳机" `
 
 生成结果保存在 `output/` 目录。
 
+### 4. 启动可视化界面
+
+```powershell
+streamlit run src/web_app.py
+```
+
+浏览器访问 `http://localhost:8501`。界面支持填写内容 Brief、查看各 Agent
+分阶段输出、检查审核状态，并下载完整 Markdown 策划方案。
+
 ## 输出内容
 
 最终 Markdown 包含：
