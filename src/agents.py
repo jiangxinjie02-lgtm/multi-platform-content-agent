@@ -1,143 +1,91 @@
-"""
-Agent definitions for the Course Content Generator.
+"""Agent definitions for the multi-platform content planning crew."""
 
-Each agent has a specific role in the content creation pipeline:
-- Curriculum Architect: Plans structure and learning objectives
-- Content Writer: Creates lesson content and code examples  
-- Quiz Master: Designs assessment questions and exercises
-- Code Reviewer: Ensures code quality and accuracy
-"""
+from __future__ import annotations
+
+import os
+from functools import lru_cache
 
 from crewai import Agent, LLM
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-def create_curriculum_architect() -> Agent:
-    """
-    Creates the Curriculum Architect agent.
-    
-    This agent is responsible for:
-    - Analyzing the topic and breaking it into learnable chunks
-    - Defining clear, measurable learning objectives
-    - Creating a logical lesson structure
-    - Identifying prerequisites and dependencies
-    """
+@lru_cache(maxsize=1)
+def get_llm() -> LLM:
+    """Create one shared DeepSeek LLM configuration for all agents."""
+    model = os.getenv("DEEPSEEK_MODEL", "deepseek/deepseek-chat").strip()
+    if "/" not in model:
+        model = f"deepseek/{model}"
+
+    return LLM(
+        model=model,
+        api_key=os.getenv("DEEPSEEK_API_KEY", "missing-deepseek-api-key"),
+        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        temperature=0.6,
+    )
+
+
+def create_strategy_agent() -> Agent:
     return Agent(
-        role="Curriculum Architect",
-        goal=(
-            "Design a comprehensive and well-structured lesson plan that guides "
-            "learners from foundational concepts to practical application"
-        ),
+        role="内容选题策划 Agent",
+        goal="根据产品、目标用户和营销目标，制定有传播价值且可执行的内容策略",
         backstory=(
-            "You are an experienced instructional designer with deep expertise in "
-            "technical education. You've designed curricula for major tech companies "
-            "and online learning platforms. You understand how developers learn best: "
-            "through clear explanations, practical examples, and hands-on practice. "
-            "You specialize in breaking down complex topics into digestible chunks "
-            "while maintaining technical accuracy."
+            "你是一名熟悉消费品牌和内容电商的资深策略师，擅长提炼用户痛点、"
+            "产品卖点、内容角度和转化路径。你拒绝空洞口号，所有选题必须与输入信息一致。"
         ),
+        llm=get_llm(),
         verbose=True,
         allow_delegation=False,
     )
 
 
-def create_content_writer() -> Agent:
-    """
-    Creates the Content Writer agent.
-    
-    This agent is responsible for:
-    - Writing clear, engaging lesson content
-    - Creating practical code examples
-    - Explaining concepts with appropriate depth
-    - Using consistent tone and terminology
-    """
+def create_copywriter_agent() -> Agent:
     return Agent(
-        role="Technical Content Writer",
-        goal=(
-            "Create clear, engaging, and technically accurate lesson content "
-            "with practical code examples that developers can immediately use"
-        ),
+        role="短视频文案创作 Agent",
+        goal="将内容策略转化为有吸引力、口语化且能拍摄落地的内容脚本",
         backstory=(
-            "You are a senior technical writer who has authored documentation for "
-            "popular open-source projects and developer tools. You have a gift for "
-            "explaining complex concepts in simple terms without dumbing them down. "
-            "Your code examples are always production-quality: well-commented, "
-            "following best practices, and actually runnable. You write in a "
-            "conversational but professional tone that keeps developers engaged."
+            "你长期为消费品牌创作短视频和种草内容，擅长前三秒钩子、口播节奏、"
+            "场景化表达和行动引导。你不会虚构产品参数或使用绝对化承诺。"
         ),
+        llm=get_llm(),
         verbose=True,
         allow_delegation=False,
     )
 
 
-def create_quiz_master() -> Agent:
-    """
-    Creates the Quiz Master agent.
-    
-    This agent is responsible for:
-    - Creating varied assessment questions
-    - Designing hands-on exercises
-    - Ensuring questions test understanding, not memorization
-    - Providing helpful explanations for answers
-    """
+def create_platform_agent() -> Agent:
     return Agent(
-        role="Quiz Master",
-        goal=(
-            "Design assessment questions and exercises that truly test "
-            "understanding and reinforce learning through practical application"
-        ),
+        role="平台适配 Agent",
+        goal="将统一内容创意分别适配为抖音和小红书的原生表达",
         backstory=(
-            "You are an assessment specialist who has created certification exams "
-            "and course assessments for major tech education platforms. You believe "
-            "the best questions test conceptual understanding and practical skills, "
-            "not rote memorization. Your exercises are challenging but achievable, "
-            "building confidence while pushing learners to apply what they've learned. "
-            "You always explain why answers are correct or incorrect."
+            "你理解抖音与小红书用户的阅读习惯和内容结构差异。"
+            "抖音内容强调强钩子、口播和分镜；小红书内容强调真实体验、标题、正文层次和话题。"
         ),
+        llm=get_llm(),
         verbose=True,
         allow_delegation=False,
     )
 
 
-def create_code_reviewer() -> Agent:
-    """
-    Creates the Code Reviewer agent.
-    
-    This agent is responsible for:
-    - Reviewing all code examples for correctness
-    - Ensuring code follows best practices
-    - Checking for common mistakes and anti-patterns
-    - Suggesting improvements for clarity
-    """
+def create_compliance_agent() -> Agent:
     return Agent(
-        role="Senior Code Reviewer",
-        goal=(
-            "Ensure all code examples are correct, follow best practices, "
-            "and demonstrate proper patterns that learners should emulate"
-        ),
+        role="内容审核 Agent",
+        goal="检查内容真实性、合规性、平台适配度和可执行性，并给出明确审核结论",
         backstory=(
-            "You are a senior software engineer with 15+ years of experience who "
-            "now focuses on code quality and developer education. You've reviewed "
-            "thousands of pull requests and have a keen eye for spotting bugs, "
-            "anti-patterns, and opportunities for improvement. You're particularly "
-            "experienced with Python and the CrewAI framework. Your reviews are "
-            "thorough but constructive, always explaining the 'why' behind your "
-            "suggestions."
+            "你是一名严格的内容质检负责人，熟悉常见广告法风险、夸大承诺、"
+            "敏感表达和平台内容质量问题。你必须给出 REVIEW_STATUS: PASS 或 REVIEW_STATUS: REVISE。"
         ),
+        llm=get_llm(),
         verbose=True,
         allow_delegation=False,
     )
 
 
 def get_all_agents() -> dict[str, Agent]:
-    """
-    Create and return all agents as a dictionary.
-    
-    Returns:
-        Dictionary mapping agent names to Agent instances
-    """
     return {
-        "curriculum_architect": create_curriculum_architect(),
-        "content_writer": create_content_writer(),
-        "quiz_master": create_quiz_master(),
-        "code_reviewer": create_code_reviewer(),
+        "strategy": create_strategy_agent(),
+        "copywriter": create_copywriter_agent(),
+        "platform": create_platform_agent(),
+        "compliance": create_compliance_agent(),
     }

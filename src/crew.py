@@ -1,61 +1,53 @@
-"""
-Crew definition for the Course Content Generator.
+"""Crew assembly for multi-platform content planning."""
 
-This module assembles the agents and tasks into a functional crew
-that can generate complete lesson packages.
-"""
+from __future__ import annotations
 
 from crewai import Crew, Process
+
 from .agents import get_all_agents
 from .tasks import get_all_tasks
 
 
-class CourseGeneratorCrew:
-    """
-    A CrewAI crew that generates educational course content.
-    
-    The crew consists of four specialized agents working in sequence:
-    1. Curriculum Architect - Plans the lesson structure
-    2. Content Writer - Creates the actual content
-    3. Quiz Master - Designs assessments
-    4. Code Reviewer - Ensures code quality
-    
-    Usage:
-        crew = CourseGeneratorCrew(topic="Building Custom Tools in CrewAI")
-        result = crew.run()
-    """
-    
-    def __init__(self, topic: str, verbose: bool = True):
-        """
-        Initialize the course generator crew.
-        
-        Args:
-            topic: The topic to generate content for
-            verbose: Whether to show detailed agent output
-        """
-        self.topic = topic
+class ContentPlanningCrew:
+    def __init__(
+        self,
+        product: str,
+        audience: str,
+        goal: str,
+        platforms: str,
+        style: str,
+        selling_points: str = "",
+        revision_feedback: str = "",
+        verbose: bool = True,
+    ):
+        self.inputs = {
+            "product": product,
+            "audience": audience,
+            "goal": goal,
+            "platforms": platforms,
+            "style": style,
+            "selling_points": selling_points,
+            "revision_feedback": revision_feedback,
+        }
         self.verbose = verbose
         self._agents = None
         self._tasks = None
         self._crew = None
-    
+
     @property
-    def agents(self) -> dict:
-        """Lazily create and return agents."""
+    def agents(self):
         if self._agents is None:
             self._agents = get_all_agents()
         return self._agents
-    
+
     @property
-    def tasks(self) -> list:
-        """Lazily create and return tasks."""
+    def tasks(self):
         if self._tasks is None:
-            self._tasks = get_all_tasks(self.agents, self.topic)
+            self._tasks = get_all_tasks(self.agents, **self.inputs)
         return self._tasks
-    
+
     @property
-    def crew(self) -> Crew:
-        """Lazily create and return the crew."""
+    def crew(self):
         if self._crew is None:
             self._crew = Crew(
                 agents=list(self.agents.values()),
@@ -64,43 +56,18 @@ class CourseGeneratorCrew:
                 verbose=self.verbose,
             )
         return self._crew
-    
+
     def run(self) -> str:
-        """
-        Execute the crew to generate course content.
-        
-        Returns:
-            The complete lesson package as a string
-        """
-        result = self.crew.kickoff()
-        return str(result)
-    
+        return str(self.crew.kickoff())
+
     def get_task_outputs(self) -> dict[str, str]:
-        """
-        Get individual task outputs after running.
-        
-        Returns:
-            Dictionary mapping task names to their outputs
-        """
-        task_names = ["curriculum", "content", "quiz", "review"]
-        outputs = {}
-        
-        for name, task in zip(task_names, self.tasks):
-            if task.output:
-                outputs[name] = str(task.output)
-        
-        return outputs
+        names = ["strategy", "copy", "platform", "review"]
+        return {
+            name: str(task.output)
+            for name, task in zip(names, self.tasks)
+            if task.output
+        }
 
 
-def create_crew(topic: str, verbose: bool = True) -> CourseGeneratorCrew:
-    """
-    Factory function to create a course generator crew.
-    
-    Args:
-        topic: The topic to generate content for
-        verbose: Whether to show detailed output
-        
-    Returns:
-        Configured CourseGeneratorCrew instance
-    """
-    return CourseGeneratorCrew(topic=topic, verbose=verbose)
+def create_crew(**kwargs) -> ContentPlanningCrew:
+    return ContentPlanningCrew(**kwargs)

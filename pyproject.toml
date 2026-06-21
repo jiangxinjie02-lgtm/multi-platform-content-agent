@@ -1,16 +1,19 @@
 [project]
-name = "crewai-course-generator"
-version = "0.1.0"
-description = "A CrewAI-powered course content generator for CrewAI Campus"
+name = "multi-platform-content-agent"
+version = "1.0.0"
+description = "A CrewAI and DeepSeek powered content planning workflow for Douyin and Xiaohongshu"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "crewai>=0.98.0",
-    "crewai-tools>=0.40.0",
+    "crewai[litellm]==1.14.3",
+    "python-dotenv>=1.0.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
 [project.scripts]
-course-gen = "src.main:main"
+content-agent = "src.main:main"
 
 [build-system]
 requires = ["hatchling"]

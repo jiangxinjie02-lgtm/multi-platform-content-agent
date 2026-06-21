@@ -1,350 +1,258 @@
-"""
-Flow-based orchestration for the Course Content Generator.
+"""Flow orchestration for multi-platform content planning."""
 
-This module implements a Flow that orchestrates the content generation
-process, adding pre-processing, post-processing, and conditional routing
-capabilities on top of the core Crew.
+from __future__ import annotations
 
-The hybrid Flow + Crew pattern:
-- Flow handles orchestration, state management, and routing
-- Crew handles the actual content generation work
-"""
-
-from crewai.flow.flow import Flow, listen, start, router, or_
-from pydantic import BaseModel
-from typing import Literal
+import re
 from datetime import datetime
-import json
+from typing import Literal
 
-from .crew import CourseGeneratorCrew
+from crewai.flow.flow import Flow, listen, or_, router, start
+from pydantic import BaseModel, Field
+
+from .crew import ContentPlanningCrew
 
 
-class CourseFlowState(BaseModel):
-    """
-    State management for the course generation flow.
-    
-    Tracks the topic, generated content, quality metrics,
-    and any errors encountered during generation.
-    """
-    # Input
-    topic: str = ""
-    difficulty: str = "intermediate"  # beginner, intermediate, advanced
-    target_audience: str = "developers"
-    
-    # Processing state
-    topic_validated: bool = False
-    topic_analysis: str = ""
-    
-    # Generated content
-    raw_content: str = ""
-    curriculum_output: str = ""
-    lesson_output: str = ""
-    quiz_output: str = ""
+SUPPORTED_PLATFORMS = {"抖音", "小红书"}
+
+
+def validate_brief(product: str, audience: str, platforms: str) -> list[str]:
+    errors = []
+    if len(product.strip()) < 2:
+        errors.append("产品名称不能为空或过短")
+    if len(audience.strip()) < 2:
+        errors.append("目标人群不能为空或过短")
+    selected = {p.strip() for p in platforms.replace("，", ",").split(",") if p.strip()}
+    if not selected:
+        errors.append("至少选择一个目标平台")
+    elif not selected.issubset(SUPPORTED_PLATFORMS):
+        errors.append("目标平台目前仅支持抖音和小红书")
+    return errors
+
+
+def review_is_passed(review_output: str) -> bool:
+    return "REVIEW_STATUS: PASS" in review_output.upper()
+
+
+def find_risky_claims(content: str, supplied_facts: str) -> list[str]:
+    """Detect claims that should not be trusted to an LLM-only reviewer."""
+    risks: list[str] = []
+    facts = supplied_facts.lower()
+    disclaimer_markers = ("删除", "不得", "禁止", "未提供", "风险", "审核意见")
+    scannable_content = "\n".join(
+        line
+        for line in content.splitlines()
+        if not any(marker in line for marker in disclaimer_markers)
+    )
+
+    metric_pattern = re.compile(
+        r"\d+(?:\.\d+)?\s*(?:%|ms|毫秒|小时|h\+?|克|g)",
+        re.IGNORECASE,
+    )
+    for metric in dict.fromkeys(metric_pattern.findall(scannable_content)):
+        if metric.lower() not in facts:
+            risks.append(f"发现未由用户提供的量化参数：{metric}")
+
+    risky_phrases = (
+        "续航天花板",
+        "百分百",
+        "保证",
+        "最轻",
+        "最快",
+        "最好",
+        "完全同步",
+        "一点感觉都没有",
+        "耳朵不痛",
+        "耳朵也不胀痛",
+        "亲测不踩雷",
+        "直接冲",
+        "冲就完了",
+        "像没戴一样",
+        "从早八到晚十一",
+        "从下午打到熄灯",
+    )
+    for phrase in risky_phrases:
+        if phrase in scannable_content and phrase not in supplied_facts:
+            risks.append(f"发现需要降级或核实的营销表达：{phrase}")
+    return risks
+
+
+class ContentFlowState(BaseModel):
+    product: str = ""
+    audience: str = ""
+    goal: str = "提升内容互动和购买转化"
+    platforms: str = "抖音,小红书"
+    style: str = "年轻、真实、自然"
+    selling_points: str = ""
+
+    brief_validated: bool = False
+    strategy_output: str = ""
+    copy_output: str = ""
+    platform_output: str = ""
     review_output: str = ""
-    
-    # Quality metrics
-    code_review_passed: bool = False
+
+    review_passed: bool = False
     review_attempts: int = 0
     max_review_attempts: int = 2
-    
-    # Final output
     final_content: str = ""
-    generation_metadata: dict = {}
-    
-    # Error handling
-    errors: list[str] = []
+    errors: list[str] = Field(default_factory=list)
+    generation_metadata: dict = Field(default_factory=dict)
 
 
-class CourseGeneratorFlow(Flow[CourseFlowState]):
-    """
-    A Flow that orchestrates the course content generation process.
-    
-    This flow adds several capabilities on top of the raw Crew:
-    
-    1. **Topic Validation**: Ensures the topic is specific enough
-    2. **Context Enrichment**: Adds metadata and context
-    3. **Quality Routing**: Re-runs content if code review fails
-    4. **Post-Processing**: Formats and packages final output
-    
-    Usage:
-        flow = CourseGeneratorFlow()
-        result = flow.kickoff(inputs={"topic": "Building Custom Tools"})
-    """
-    
+class ContentPlanningFlow(Flow[ContentFlowState]):
     @start()
-    def validate_topic(self) -> str:
-        """
-        Validate and analyze the input topic.
-        
-        Ensures the topic is:
-        - Not empty
-        - Specific enough to generate meaningful content
-        - Related to CrewAI concepts
-        """
-        topic = self.state.topic
-        
-        if not topic or len(topic.strip()) < 3:
-            self.state.errors.append("Topic is too short or empty")
-            return "invalid"
-        
-        # Basic topic analysis (could be enhanced with LLM)
-        topic_lower = topic.lower()
-        
-        # Check if it's CrewAI related
-        crewai_keywords = [
-            "agent", "crew", "task", "tool", "flow", "memory",
-            "llm", "ai", "automation", "orchestration", "pipeline",
-            "crewai", "delegation", "process"
-        ]
-        
-        is_relevant = any(kw in topic_lower for kw in crewai_keywords)
-        
-        if not is_relevant:
-            # Still allow it, but note it's not CrewAI-specific
-            self.state.topic_analysis = (
-                f"Topic '{topic}' doesn't appear to be CrewAI-specific. "
-                "Content will be generated with a general AI/automation focus."
-            )
-        else:
-            self.state.topic_analysis = (
-                f"Topic '{topic}' is relevant to CrewAI concepts."
-            )
-        
-        self.state.topic_validated = True
-        return "valid"
-    
-    @listen("valid")
-    def generate_content(self) -> str:
-        """
-        Run the main content generation Crew.
-        
-        This is where the heavy lifting happens - the Crew
-        generates curriculum, content, quizzes, and reviews.
-        """
-        print(f"\n🚀 Starting content generation for: {self.state.topic}")
-        print(f"   Analysis: {self.state.topic_analysis}")
-        
-        try:
-            # Create and run the crew
-            crew = CourseGeneratorCrew(
-                topic=self.state.topic,
-                verbose=True
-            )
-            
-            result = crew.run()
-            self.state.raw_content = result
-            
-            # Extract individual task outputs if available
-            task_outputs = crew.get_task_outputs()
-            if task_outputs:
-                self.state.curriculum_output = task_outputs.get("curriculum", "")
-                self.state.lesson_output = task_outputs.get("content", "")
-                self.state.quiz_output = task_outputs.get("quiz", "")
-                self.state.review_output = task_outputs.get("review", "")
-            
-            return "content_generated"
-            
-        except Exception as e:
-            self.state.errors.append(f"Content generation failed: {str(e)}")
-            return "generation_failed"
-    
-    @router(generate_content)
-    def check_quality(self) -> Literal["quality_passed", "needs_revision", "max_retries"]:
-        """
-        Route based on code review results.
-        
-        If code review found significant issues and we haven't
-        exceeded max retries, route back for revision.
-        """
-        self.state.review_attempts += 1
-        
-        # Check if review output indicates issues
-        review_output = self.state.review_output.lower()
-        
-        # Look for indicators of problems
-        problem_indicators = [
-            "needs changes",
-            "has issues",
-            "incorrect",
-            "won't run",
-            "syntax error",
-            "critical issue"
-        ]
-        
-        has_problems = any(ind in review_output for ind in problem_indicators)
-        
-        # Look for indicators of approval
-        approval_indicators = [
-            "approved",
-            "good",
-            "correct",
-            "production-ready",
-            "no issues"
-        ]
-        
-        is_approved = any(ind in review_output for ind in approval_indicators)
-        
-        if is_approved or not has_problems:
-            self.state.code_review_passed = True
-            return "quality_passed"
-        elif self.state.review_attempts >= self.state.max_review_attempts:
-            # Accept what we have after max attempts
-            return "max_retries"
-        else:
-            return "needs_revision"
-    
-    @listen("needs_revision")
-    def revise_content(self) -> str:
-        """
-        Re-run content generation with feedback from review.
-        
-        This creates a feedback loop where review comments
-        inform the next generation attempt.
-        """
-        print(f"\n🔄 Revision attempt {self.state.review_attempts}")
-        print(f"   Review feedback: {self.state.review_output[:200]}...")
-        
-        # Enhance topic with review feedback
-        enhanced_topic = (
-            f"{self.state.topic}\n\n"
-            f"[REVISION NOTE: Previous code review found issues. "
-            f"Please address: {self.state.review_output[:500]}]"
+    def validate_input(self) -> str:
+        self.state.errors = validate_brief(
+            self.state.product,
+            self.state.audience,
+            self.state.platforms,
         )
-        
-        try:
-            crew = CourseGeneratorCrew(
-                topic=enhanced_topic,
-                verbose=True
+        if self.state.errors:
+            return "invalid"
+        self.state.brief_validated = True
+        return "valid"
+
+    @router(validate_input)
+    def route_validation(self, validation_result: str) -> Literal["valid", "invalid"]:
+        return "valid" if validation_result == "valid" else "invalid"
+
+    def _run_crew(self, revision_feedback: str = "") -> None:
+        crew = ContentPlanningCrew(
+            product=self.state.product,
+            audience=self.state.audience,
+            goal=self.state.goal,
+            platforms=self.state.platforms,
+            style=self.state.style,
+            selling_points=self.state.selling_points,
+            revision_feedback=revision_feedback,
+            verbose=True,
+        )
+        crew.run()
+        outputs = crew.get_task_outputs()
+        self.state.strategy_output = outputs.get("strategy", "")
+        self.state.copy_output = outputs.get("copy", "")
+        self.state.platform_output = outputs.get("platform", "")
+        self.state.review_output = outputs.get("review", "")
+        guardrail_risks = find_risky_claims(
+            self.state.platform_output,
+            self.state.selling_points,
+        )
+        if guardrail_risks:
+            details = "\n".join(f"- {risk}" for risk in guardrail_risks)
+            self.state.review_output = (
+                "REVIEW_STATUS: REVISE\n\n"
+                "确定性内容安全规则未通过，请删除或改写以下内容：\n"
+                f"{details}"
             )
-            
-            result = crew.run()
-            self.state.raw_content = result
-            
-            task_outputs = crew.get_task_outputs()
-            if task_outputs:
-                self.state.review_output = task_outputs.get("review", "")
-            
-            return "content_generated"
-            
-        except Exception as e:
-            self.state.errors.append(f"Revision failed: {str(e)}")
+
+    @listen("valid")
+    def generate_content(self) -> None:
+        try:
+            self._run_crew()
+            self.state.review_attempts = 1
+        except Exception as exc:
+            self.state.errors.append(f"内容生成失败：{exc}")
+
+    @router(generate_content)
+    def route_quality(
+        self,
+    ) -> Literal[
+        "quality_passed", "needs_revision", "max_retries", "generation_failed"
+    ]:
+        if self.state.errors:
             return "generation_failed"
-    
-    @listen(or_("quality_passed", "max_retries"))
+        if review_is_passed(self.state.review_output):
+            self.state.review_passed = True
+            return "quality_passed"
+        if self.state.review_attempts >= self.state.max_review_attempts:
+            return "max_retries"
+        return "needs_revision"
+
+    @listen("needs_revision")
+    def revise_content(self) -> None:
+        while self.state.review_attempts < self.state.max_review_attempts:
+            feedback = self.state.review_output
+            self.state.review_attempts += 1
+            try:
+                self._run_crew(revision_feedback=feedback)
+            except Exception as exc:
+                self.state.errors.append(f"第 {self.state.review_attempts} 次重写失败：{exc}")
+                return
+            if review_is_passed(self.state.review_output):
+                self.state.review_passed = True
+                return
+
+    @router(revise_content)
+    def route_revision(
+        self,
+    ) -> Literal["quality_passed", "max_retries", "generation_failed"]:
+        if self.state.errors:
+            return "generation_failed"
+        return "quality_passed" if self.state.review_passed else "max_retries"
+
+    @listen(or_("quality_passed", "max_retries", "generation_failed", "invalid"))
     def finalize_content(self) -> str:
-        """
-        Package the final content with metadata.
-        
-        Adds generation timestamp, review status, and
-        any warnings or notes from the process.
-        """
-        # Build metadata
+        if self.state.errors:
+            details = "\n".join(f"- {error}" for error in self.state.errors)
+            self.state.final_content = f"""# 内容策划生成失败
+
+## 问题
+
+{details}
+
+请检查产品、目标人群、平台配置和 DeepSeek API Key 后重试。
+"""
+            return self.state.final_content
+
+        status = (
+            "审核通过"
+            if self.state.review_passed
+            else "达到最大重写次数，建议人工复核"
+        )
         self.state.generation_metadata = {
-            "topic": self.state.topic,
-            "difficulty": self.state.difficulty,
-            "target_audience": self.state.target_audience,
+            "product": self.state.product,
+            "audience": self.state.audience,
+            "goal": self.state.goal,
+            "platforms": self.state.platforms,
+            "style": self.state.style,
             "generated_at": datetime.now().isoformat(),
             "review_attempts": self.state.review_attempts,
-            "review_passed": self.state.code_review_passed,
-            "topic_analysis": self.state.topic_analysis,
-            "errors": self.state.errors if self.state.errors else None
+            "review_passed": self.state.review_passed,
         }
-        
-        # Build final content with header
-        header = f"""---
-# Course Content Generation Report
-topic: "{self.state.topic}"
-generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-review_status: {"✅ Passed" if self.state.code_review_passed else "⚠️ Accepted with notes"}
-review_attempts: {self.state.review_attempts}
+        self.state.final_content = f"""# {self.state.product} 多平台内容策划方案
+
+> 目标人群：{self.state.audience}
+> 营销目标：{self.state.goal}
+> 目标平台：{self.state.platforms}
+> 内容风格：{self.state.style}
+> 审核状态：{status}
+> 审核次数：{self.state.review_attempts}
+
 ---
 
+## 一、内容策略
+
+{self.state.strategy_output}
+
+## 二、母版文案
+
+{self.state.copy_output}
+
+## 三、平台适配方案
+
+{self.state.platform_output}
+
+## 四、内容审核报告
+
+{self.state.review_output}
 """
-        
-        # Add any warnings
-        if self.state.errors:
-            header += "## ⚠️ Generation Notes\n\n"
-            for error in self.state.errors:
-                header += f"- {error}\n"
-            header += "\n---\n\n"
-        
-        if not self.state.code_review_passed:
-            header += (
-                "## ⚠️ Review Note\n\n"
-                "Content was accepted after maximum revision attempts. "
-                "Please review code examples manually before use.\n\n"
-                "---\n\n"
-            )
-        
-        self.state.final_content = header + self.state.raw_content
-        
-        return "complete"
-    
-    @listen(or_("invalid", "generation_failed"))
-    def handle_failure(self) -> str:
-        """
-        Handle generation failures gracefully.
-        
-        Creates an error report instead of crashing.
-        """
-        error_report = f"""---
-# Course Generation Failed
-topic: "{self.state.topic}"
-timestamp: {datetime.now().isoformat()}
----
-
-## Errors Encountered
-
-"""
-        for error in self.state.errors:
-            error_report += f"- {error}\n"
-        
-        error_report += """
-
-## Troubleshooting
-
-1. Check that the topic is specific enough
-2. Ensure API keys are configured
-3. Try a more focused topic
-4. Check the logs for detailed error messages
-"""
-        
-        self.state.final_content = error_report
-        return "complete"
-    
-    @listen("complete")
-    def output_result(self) -> str:
-        """
-        Return the final content.
-        
-        This is the terminal node that returns the result.
-        """
-        print(f"\n✅ Generation complete!")
-        print(f"   Review passed: {self.state.code_review_passed}")
-        print(f"   Attempts: {self.state.review_attempts}")
-        
         return self.state.final_content
 
 
-def create_flow() -> CourseGeneratorFlow:
-    """Factory function to create a configured flow."""
-    return CourseGeneratorFlow()
+def create_flow() -> ContentPlanningFlow:
+    return ContentPlanningFlow()
 
 
-def run_flow(topic: str, difficulty: str = "intermediate") -> str:
-    """
-    Convenience function to run the full flow.
-    
-    Args:
-        topic: The lesson topic
-        difficulty: beginner, intermediate, or advanced
-        
-    Returns:
-        Generated course content
-    """
+def run_flow(**inputs: str) -> str:
     flow = create_flow()
-    result = flow.kickoff(inputs={
-        "topic": topic,
-        "difficulty": difficulty
-    })
-    return result
+    flow.kickoff(inputs=inputs)
+    return flow.state.final_content

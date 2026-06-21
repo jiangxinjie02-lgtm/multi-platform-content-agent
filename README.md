@@ -1,355 +1,156 @@
-# 🎓 Course Generator Flow
+# 抖音 / 小红书多平台内容策划 Agent
 
-**A production-ready example of CrewAI's Flow + Crew hybrid pattern** — demonstrating how to combine orchestration logic with multi-agent collaboration.
+基于 CrewAI Flow + Crew 和 DeepSeek 开发的多智能体内容策划系统。输入产品、目标人群、营销目标和内容风格后，系统会完成选题策划、母版文案、平台适配和内容审核，并在审核不通过时自动重写。
 
-Give it a topic, get a complete lesson package: curriculum, content, quizzes, and reviewed code examples.
+> 本项目基于 CrewAI 官方开源项目 `course-generator` 进行二次开发，保留上游来源与开源许可信息。
 
-[![CrewAI](https://img.shields.io/badge/Built%20with-CrewAI-coral)](https://crewai.com)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+## 核心能力
 
----
+- 选题策划与用户痛点分析
+- 短视频口播、钩子和分镜生成
+- 抖音内容适配
+- 小红书种草内容适配
+- 广告法风险和虚假参数检查
+- Flow 状态管理
+- 内容审核与自动重写
+- Markdown 策划方案输出
+- DeepSeek API 接入
 
-## 🎯 What This Demonstrates
+## 系统架构
 
-This project showcases the **Flow + Crew hybrid pattern** — the recommended architecture for production CrewAI applications:
-
-- **Flow** handles orchestration: validation, routing, retries, state management
-- **Crew** handles execution: multi-agent collaboration on complex tasks
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         FLOW LAYER                          │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
-│  │ Validate │ →  │  Route   │ →  │ Finalize │              │
-│  └──────────┘    └────┬─────┘    └──────────┘              │
-│                       │                 ↑                   │
-│                       ▼                 │                   │
-│              ┌────────────────┐         │                   │
-│              │   CREW LAYER   │─────────┘                   │
-│              │                │                             │
-│              │  ┌──────────┐  │                             │
-│              │  │ Architect│  │                             │
-│              │  └────┬─────┘  │                             │
-│              │       ↓        │                             │
-│              │  ┌──────────┐  │                             │
-│              │  │  Writer  │  │                             │
-│              │  └────┬─────┘  │                             │
-│              │       ↓        │                             │
-│              │  ┌──────────┐  │                             │
-│              │  │Quiz Master│ │                             │
-│              │  └────┬─────┘  │                             │
-│              │       ↓        │                             │
-│              │  ┌──────────┐  │                             │
-│              │  │ Reviewer │  │                             │
-│              │  └──────────┘  │                             │
-│              └────────────────┘                             │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    U[用户输入 Brief] --> V[Flow 输入校验]
+    V --> S[内容选题策划 Agent]
+    S --> C[短视频文案创作 Agent]
+    C --> P[平台适配 Agent]
+    P --> R[内容审核 Agent]
+    R --> G[确定性 Guardrail]
+    G -->|PASS| F[生成最终策划方案]
+    G -->|REVISE| S
+    G -->|达到最大次数| F
 ```
 
-### Why This Pattern?
+## Agent 职责
 
-| Challenge | Flow Solves It | Crew Solves It |
-|-----------|---------------|----------------|
-| Input validation | ✅ Pre-flight checks | |
-| Complex multi-step work | | ✅ Agent collaboration |
-| Quality control loops | ✅ Conditional routing | |
-| Error recovery | ✅ Graceful fallbacks | |
-| State persistence | ✅ Typed state management | |
-| Specialized expertise | | ✅ Role-based agents |
+| Agent | 职责 |
+| --- | --- |
+| 内容选题策划 Agent | 分析用户痛点、产品卖点和选题方向 |
+| 短视频文案创作 Agent | 生成标题、钩子、口播稿、分镜和 CTA |
+| 平台适配 Agent | 分别输出抖音与小红书原生内容 |
+| 内容审核 Agent | 检查真实性、合规性、平台差异和内容完整度 |
 
----
+## Flow 与 Crew 分工
 
-## 🚀 Quick Start
+- **Crew**：负责四个专业 Agent 的顺序协作和内容生产。
+- **Flow**：负责输入校验、状态保存、审核路由、错误处理和最终输出。
+- **Guardrail**：在 LLM 审核之外，用确定性规则拦截未提供的数字参数和高风险营销表达，避免模型“自审自过”。
 
-### Installation
+审核 Agent 必须返回：
 
-```bash
-# Clone the repository
-git clone https://github.com/crewAIInc/course-generator-flow.git
-cd course-generator-flow
+```text
+REVIEW_STATUS: PASS
+```
 
-# Create virtual environment
+或：
+
+```text
+REVIEW_STATUS: REVISE
+```
+
+如果审核不通过，Flow 会携带审核意见重新运行 Crew，最多执行配置的审核次数。
+
+## 技术栈
+
+- Python
+- CrewAI
+- CrewAI Flow
+- DeepSeek API
+- LiteLLM
+- Pydantic
+- Pytest
+
+## 本地运行
+
+### 1. 配置环境变量
+
+```powershell
+Copy-Item .env.example .env
+```
+
+编辑 `.env`：
+
+```env
+DEEPSEEK_API_KEY=你的Key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek/deepseek-chat
+```
+
+### 2. 安装
+
+```powershell
 python -m venv .venv
-source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
-
-# Install dependencies
-pip install -e .
-
-# Set your API key
-export OPENAI_API_KEY="your-key-here"
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 ```
 
-### Generate Your First Course
+### 3. 生成内容方案
 
-```bash
-# Basic generation (Crew mode)
-python -m src.main "Building Custom Tools in CrewAI"
-
-# With Flow orchestration (recommended)
-python -m src.main "Building Custom Tools in CrewAI" --flow
-
-# Advanced options
-python -m src.main "Agent Memory Systems" --flow --difficulty advanced --output lesson.md
+```powershell
+python -m src.main "无线蓝牙耳机" `
+  --audience "大学生" `
+  --goal "提升购买转化" `
+  --platforms "抖音,小红书" `
+  --style "年轻、真实、自然" `
+  --selling-points "低延迟、续航时间长、佩戴轻便"
 ```
 
----
+生成结果保存在 `output/` 目录。
 
-## 🏗️ Architecture
+## 输出内容
 
-### The Crew (4 Specialized Agents)
+最终 Markdown 包含：
 
-| Agent | Role | Responsibility |
-|-------|------|----------------|
-| 📐 **Curriculum Architect** | Instructional Designer | Plans structure, defines learning objectives |
-| ✍️ **Content Writer** | Technical Writer | Creates lessons, explanations, code examples |
-| 🎯 **Quiz Master** | Assessment Specialist | Designs questions and hands-on exercises |
-| 🔍 **Code Reviewer** | Senior Engineer | Ensures code quality and correctness |
+1. 用户洞察和选题策略
+2. 母版口播与分镜
+3. 抖音标题、钩子、口播、分镜和标签
+4. 小红书标题、封面、正文、卖点和标签
+5. 内容审核结论和修改记录
 
-### The Flow (Orchestration Layer)
+## 自动测试
 
-```python
-class CourseGeneratorFlow(Flow[CourseFlowState]):
-    
-    @start()
-    def validate_topic(self):
-        """Pre-flight validation before spending tokens."""
-        
-    @listen("valid")
-    def generate_content(self):
-        """Run the Crew to generate content."""
-        
-    @router(generate_content)
-    def check_quality(self):
-        """Route based on code review results."""
-        
-    @listen("needs_revision")
-    def revise_content(self):
-        """Re-run with review feedback."""
-        
-    @listen(or_("quality_passed", "max_retries"))
-    def finalize_content(self):
-        """Package output with metadata."""
+```powershell
+pytest -q
 ```
 
-### State Management
+当前测试覆盖：
 
-```python
-class CourseFlowState(BaseModel):
-    # Input
-    topic: str = ""
-    difficulty: str = "intermediate"
-    
-    # Processing
-    topic_validated: bool = False
-    review_attempts: int = 0
-    code_review_passed: bool = False
-    
-    # Output
-    final_content: str = ""
-    errors: list[str] = []
-```
+- 正常 Brief 校验
+- 空产品校验
+- 不支持平台校验
+- PASS / REVISE 审核状态识别
+- 未授权量化参数检查
+- 高风险营销表达检查
 
----
+## 项目结构
 
-## 📖 Usage
-
-### Command Line
-
-```bash
-# Simple (Crew mode - direct execution)
-python -m src.main "Your Topic Here"
-
-# Flow mode (recommended for production)
-python -m src.main "Your Topic Here" --flow
-
-# All options
-python -m src.main "Topic" \
-    --flow \                    # Use Flow orchestration
-    --difficulty advanced \     # beginner/intermediate/advanced
-    --output lesson.md \        # Custom output path
-    --max-retries 3 \          # Quality retry attempts
-    --quiet                     # Less verbose output
-```
-
-### Programmatic
-
-```python
-# Crew mode (simple)
-from src import CourseGeneratorCrew
-
-crew = CourseGeneratorCrew(topic="Building Custom Tools")
-result = crew.run()
-
-# Flow mode (production)
-from src import CourseGeneratorFlow
-
-flow = CourseGeneratorFlow()
-result = flow.kickoff(inputs={
-    "topic": "Building Custom Tools",
-    "difficulty": "intermediate"
-})
-
-# Access state after completion
-print(f"Review passed: {flow.state.code_review_passed}")
-print(f"Attempts: {flow.state.review_attempts}")
-```
-
----
-
-## 📁 Project Structure
-
-```
-course-generator-flow/
-├── README.md
-├── pyproject.toml
+```text
+.
 ├── src/
-│   ├── __init__.py         # Package exports
-│   ├── agents.py           # Agent definitions (roles, goals, backstories)
-│   ├── tasks.py            # Task definitions (descriptions, expected outputs)
-│   ├── crew.py             # Crew assembly (agents + tasks + process)
-│   ├── flow.py             # Flow orchestration (validation, routing, state)
-│   └── main.py             # CLI entry point
-├── output/                 # Generated content
-└── examples/               # Sample outputs
+│   ├── agents.py   # DeepSeek 配置与四个 Agent
+│   ├── tasks.py    # 四个内容生产任务
+│   ├── crew.py     # Crew 顺序编排
+│   ├── flow.py     # 校验、状态、审核和重写
+│   └── main.py     # CLI 入口
+├── tests/
+├── examples/
+└── output/
 ```
 
----
+## 后续方向
 
-## 🎨 Output Example
-
-Generated content includes:
-
-```markdown
-# Course Content: Building Custom Tools in CrewAI
-
-> Generated by CrewAI Course Generator (Flow Mode)
-> Review Passed: ✅ Yes
-> Attempts: 1
-
----
-
-## Learning Objectives
-1. Understand when and why to create custom tools
-2. Implement a basic custom tool using the @tool decorator
-3. Build tools that interact with external APIs
-...
-
-## Introduction
-Tools are what give your agents superpowers...
-
-## Code Examples
-
-### Example 1: Simple Calculator Tool
-```python
-from crewai.tools import tool
-
-@tool
-def calculate(expression: str) -> str:
-    """Evaluate a mathematical expression."""
-    return str(eval(expression))
-```
-
-...
-
-## Quiz Questions
-1. What decorator is used to create a custom tool?
-   - [ ] @agent
-   - [x] @tool
-   - [ ] @task
-...
-```
-
----
-
-## 🔧 Customization
-
-### Using Different Models
-
-```python
-# In src/agents.py
-from crewai import Agent, LLM
-
-llm = LLM(model="gpt-4o")  # or claude-3-5-sonnet, etc.
-
-return Agent(
-    role="Curriculum Architect",
-    llm=llm,
-    # ...
-)
-```
-
-### Adding New Agents
-
-```python
-# In src/agents.py
-def create_visual_designer() -> Agent:
-    return Agent(
-        role="Visual Designer",
-        goal="Create diagrams and visual aids for lessons",
-        backstory="You are a technical illustrator who...",
-    )
-```
-
-### Extending the Flow
-
-```python
-# In src/flow.py
-@listen("finalize_content")
-def generate_visuals(self):
-    """Add a visual generation step."""
-    # Use the visual designer agent
-    pass
-```
-
----
-
-## 💡 Example Topics
-
-**Beginner:**
-- "Introduction to CrewAI Agents"
-- "Your First Crew: Hello World"
-- "Understanding Tasks and Goals"
-
-**Intermediate:**
-- "Building Custom Tools in CrewAI"
-- "Agent Memory and Context"
-- "Multi-Agent Collaboration Patterns"
-
-**Advanced:**
-- "Flow-Based Orchestration Patterns"
-- "Production Deployment Strategies"
-- "Advanced Task Delegation"
-
----
-
-## 🤝 Contributing
-
-Contributions welcome! Areas of interest:
-
-- [ ] Additional agent types (e.g., Visual Designer, Translator)
-- [ ] More output formats (HTML, PDF, SCORM)
-- [ ] Integration with LMS platforms
-- [ ] Caching for faster regeneration
-- [ ] Parallel task execution where possible
-
----
-
-## 📄 License
-
-MIT License - Use freely in your own projects.
-
----
-
-## 🔗 Resources
-
-- [CrewAI Documentation](https://docs.crewai.com)
-- [CrewAI Flows Guide](https://docs.crewai.com/concepts/flows)
-- [CrewAI GitHub](https://github.com/crewAIInc/crewAI)
-- [CrewAI Discord](https://discord.gg/crewai)
-
----
-
-<p align="center">
-  <strong>Built with ❤️ using <a href="https://crewai.com">CrewAI</a></strong>
-</p>
+- 增加网页表单和任务执行可视化
+- 加入品牌知识库和历史爆款 RAG
+- 接入热点搜索工具
+- 增加敏感词库和平台规则配置
+- 增加内容质量评测数据集
