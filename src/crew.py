@@ -17,6 +17,11 @@ class ContentPlanningCrew:
         platforms: str,
         style: str,
         selling_points: str = "",
+        material_source: str = "用户不提供素材，由 AI 生成素材建议",
+        video_type: str = "图文快闪",
+        video_duration: str = "30 秒",
+        material_notes: str = "",
+        material_assets: str = "",
         revision_feedback: str = "",
         verbose: bool = True,
     ):
@@ -27,6 +32,11 @@ class ContentPlanningCrew:
             "platforms": platforms,
             "style": style,
             "selling_points": selling_points,
+            "material_source": material_source,
+            "video_type": video_type,
+            "video_duration": video_duration,
+            "material_notes": material_notes,
+            "material_assets": material_assets,
             "revision_feedback": revision_feedback,
         }
         self.verbose = verbose
@@ -61,7 +71,7 @@ class ContentPlanningCrew:
         return str(self.crew.kickoff())
 
     def get_task_outputs(self) -> dict[str, str]:
-        names = ["strategy", "copy", "platform", "review"]
+        names = ["strategy", "copy", "platform", "review", "video"]
         return {
             name: str(task.output)
             for name, task in zip(names, self.tasks)

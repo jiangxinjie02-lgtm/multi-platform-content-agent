@@ -82,10 +82,25 @@ def create_compliance_agent() -> Agent:
     )
 
 
+def create_video_producer_agent() -> Agent:
+    return Agent(
+        role="短视频制片 Agent",
+        goal="将审核后的内容方案转化为可执行的视频生产包，覆盖有素材和无素材两种制作路径",
+        backstory=(
+            "你是一名短视频制片策划，熟悉口播、产品展示、图文快闪和剧情场景视频的制作流程。"
+            "你能把营销文案拆成镜头、旁白、字幕、素材清单和 AI 画面提示词，并明确哪些内容需要用户素材。"
+        ),
+        llm=get_llm(),
+        verbose=True,
+        allow_delegation=False,
+    )
+
+
 def get_all_agents() -> dict[str, Agent]:
     return {
         "strategy": create_strategy_agent(),
         "copywriter": create_copywriter_agent(),
         "platform": create_platform_agent(),
         "compliance": create_compliance_agent(),
+        "video": create_video_producer_agent(),
     }

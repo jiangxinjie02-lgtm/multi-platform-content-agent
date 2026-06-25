@@ -26,6 +26,26 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--style", default="年轻、真实、自然", help="内容风格")
     parser.add_argument("--selling-points", default="", help="已知卖点，避免模型虚构参数")
+    parser.add_argument(
+        "--material-source",
+        default="用户不提供素材，由 AI 生成素材建议",
+        choices=["用户提供素材", "用户不提供素材，由 AI 生成素材建议"],
+        help="视频素材来源",
+    )
+    parser.add_argument(
+        "--video-type",
+        default="图文快闪",
+        choices=["口播讲解", "产品展示", "图文快闪", "剧情场景"],
+        help="要生成的视频类型",
+    )
+    parser.add_argument(
+        "--video-duration",
+        default="30 秒",
+        choices=["15 秒", "30 秒", "60 秒"],
+        help="目标视频时长",
+    )
+    parser.add_argument("--material-notes", default="", help="用户已有素材或素材偏好的说明")
+    parser.add_argument("--material-assets", default="", help="上传素材索引，供视频 Agent 安排镜头使用")
     parser.add_argument("--max-retries", type=int, default=2, help="最大审核生成次数")
     parser.add_argument("-o", "--output", type=Path, help="Markdown 输出路径")
     return parser.parse_args()
@@ -52,6 +72,11 @@ def main() -> int:
                 "platforms": args.platforms,
                 "style": args.style,
                 "selling_points": args.selling_points,
+                "material_source": args.material_source,
+                "video_type": args.video_type,
+                "video_duration": args.video_duration,
+                "material_notes": args.material_notes,
+                "material_assets": args.material_assets,
                 "max_review_attempts": args.max_retries,
             }
         )

@@ -12,6 +12,11 @@ def _brief(
     platforms: str,
     style: str,
     selling_points: str,
+    material_source: str = "用户不提供素材，由 AI 生成素材建议",
+    video_type: str = "图文快闪",
+    video_duration: str = "30 秒",
+    material_notes: str = "",
+    material_assets: str = "",
     revision_feedback: str = "",
 ) -> str:
     brief = f"""
@@ -21,6 +26,11 @@ def _brief(
 目标平台：{platforms}
 内容风格：{style}
 已知卖点：{selling_points or "未提供，请只根据产品常识提出谨慎建议，不得虚构参数"}
+素材来源：{material_source}
+视频类型：{video_type}
+视频时长：{video_duration}
+素材说明：{material_notes or "未提供"}
+素材索引：{material_assets or "未上传素材"}
 """
     if revision_feedback:
         brief += f"""
@@ -130,9 +140,44 @@ REVIEW_STATUS: REVISE
     )
 
 
+def create_video_task(agent: Agent, platform_task: Task, review_task: Task, **inputs: str) -> Task:
+    brief = _brief(**inputs)
+    return Task(
+        description=f"""
+基于已通过审核或建议人工复核的平台内容，生成一份可交付的视频生产包：
+{brief}
+
+你必须根据素材来源分别处理：
+- 如果用户提供素材：优先规划如何使用素材索引中的具体文件，分镜表的“素材来源”必须尽量写明文件名，并列出缺失素材和替代拍摄建议。
+- 如果用户不提供素材：输出可用于 AI 图片/视频生成的画面提示词，避免要求用户必须拍摄。
+
+你必须根据视频类型调整表达：
+- 口播讲解：突出人设、口播节奏、字幕重点和镜头切换。
+- 产品展示：突出产品特写、使用场景、卖点呈现和 CTA。
+- 图文快闪：突出封面、图文节奏、字幕卡、转场和配音节奏。
+- 剧情场景：突出人物、冲突、场景推进和转化节点。
+
+输出必须包含以下结构：
+1. 成片定位：平台、比例、建议时长、视频类型、核心卖点。
+2. 分镜表：镜头编号、时长、画面、旁白/台词、屏幕字幕、素材来源、剪辑建议。
+3. 素材清单：必需素材、可选素材、缺失素材补救方案。
+4. AI 画面提示词：每个镜头一条，适合给图像或视频生成工具使用。
+5. TTS 配音稿：完整、口语化、可直接配音。
+6. SRT 字幕草稿：使用 00:00:00,000 --> 00:00:03,000 格式，时间轴总长接近用户选择的视频时长。
+7. 生产备注：风险边界、不能虚构的参数、下一步自动成片可接入的环节。
+
+不要虚构用户未提供的参数、认证、价格、效果数据或真实素材细节。
+""",
+        expected_output="中文视频生产包，包含成片定位、分镜表、素材清单、AI 提示词、TTS 配音稿和 SRT 字幕草稿。",
+        agent=agent,
+        context=[platform_task, review_task],
+    )
+
+
 def get_all_tasks(agents: dict[str, Agent], **inputs: str) -> list[Task]:
     strategy = create_strategy_task(agents["strategy"], **inputs)
     copy = create_copy_task(agents["copywriter"], strategy, **inputs)
     platform = create_platform_task(agents["platform"], copy, **inputs)
     review = create_review_task(agents["compliance"], platform, **inputs)
-    return [strategy, copy, platform, review]
+    video = create_video_task(agents["video"], platform, review, **inputs)
+    return [strategy, copy, platform, review, video]

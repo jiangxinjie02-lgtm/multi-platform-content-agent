@@ -13,6 +13,12 @@ from .crew import ContentPlanningCrew
 
 
 SUPPORTED_PLATFORMS = {"抖音", "小红书"}
+SUPPORTED_MATERIAL_SOURCES = {
+    "用户提供素材",
+    "用户不提供素材，由 AI 生成素材建议",
+}
+SUPPORTED_VIDEO_TYPES = {"口播讲解", "产品展示", "图文快闪", "剧情场景"}
+SUPPORTED_VIDEO_DURATIONS = {"15 秒", "30 秒", "60 秒"}
 
 
 def validate_brief(product: str, audience: str, platforms: str) -> list[str]:
@@ -26,6 +32,21 @@ def validate_brief(product: str, audience: str, platforms: str) -> list[str]:
         errors.append("至少选择一个目标平台")
     elif not selected.issubset(SUPPORTED_PLATFORMS):
         errors.append("目标平台目前仅支持抖音和小红书")
+    return errors
+
+
+def validate_video_options(
+    material_source: str,
+    video_type: str,
+    video_duration: str,
+) -> list[str]:
+    errors = []
+    if material_source not in SUPPORTED_MATERIAL_SOURCES:
+        errors.append("素材来源选项不受支持")
+    if video_type not in SUPPORTED_VIDEO_TYPES:
+        errors.append("视频类型选项不受支持")
+    if video_duration not in SUPPORTED_VIDEO_DURATIONS:
+        errors.append("视频时长目前支持 15 秒、30 秒和 60 秒")
     return errors
 
 
@@ -83,12 +104,18 @@ class ContentFlowState(BaseModel):
     platforms: str = "抖音,小红书"
     style: str = "年轻、真实、自然"
     selling_points: str = ""
+    material_source: str = "用户不提供素材，由 AI 生成素材建议"
+    video_type: str = "图文快闪"
+    video_duration: str = "30 秒"
+    material_notes: str = ""
+    material_assets: str = ""
 
     brief_validated: bool = False
     strategy_output: str = ""
     copy_output: str = ""
     platform_output: str = ""
     review_output: str = ""
+    video_output: str = ""
 
     review_passed: bool = False
     review_attempts: int = 0
@@ -105,6 +132,13 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
             self.state.product,
             self.state.audience,
             self.state.platforms,
+        )
+        self.state.errors.extend(
+            validate_video_options(
+                self.state.material_source,
+                self.state.video_type,
+                self.state.video_duration,
+            )
         )
         if self.state.errors:
             return "invalid"
@@ -123,6 +157,11 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
             platforms=self.state.platforms,
             style=self.state.style,
             selling_points=self.state.selling_points,
+            material_source=self.state.material_source,
+            video_type=self.state.video_type,
+            video_duration=self.state.video_duration,
+            material_notes=self.state.material_notes,
+            material_assets=self.state.material_assets,
             revision_feedback=revision_feedback,
             verbose=True,
         )
@@ -132,6 +171,7 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
         self.state.copy_output = outputs.get("copy", "")
         self.state.platform_output = outputs.get("platform", "")
         self.state.review_output = outputs.get("review", "")
+        self.state.video_output = outputs.get("video", "")
         guardrail_risks = find_risky_claims(
             self.state.platform_output,
             self.state.selling_points,
@@ -214,6 +254,10 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
             "goal": self.state.goal,
             "platforms": self.state.platforms,
             "style": self.state.style,
+            "material_source": self.state.material_source,
+            "video_type": self.state.video_type,
+            "video_duration": self.state.video_duration,
+            "material_assets": self.state.material_assets,
             "generated_at": datetime.now().isoformat(),
             "review_attempts": self.state.review_attempts,
             "review_passed": self.state.review_passed,
@@ -224,6 +268,10 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
 > 营销目标：{self.state.goal}
 > 目标平台：{self.state.platforms}
 > 内容风格：{self.state.style}
+> 素材来源：{self.state.material_source}
+> 视频类型：{self.state.video_type}
+> 视频时长：{self.state.video_duration}
+> 上传素材：{"有" if self.state.material_assets else "无"}
 > 审核状态：{status}
 > 审核次数：{self.state.review_attempts}
 
@@ -244,6 +292,10 @@ class ContentPlanningFlow(Flow[ContentFlowState]):
 ## 四、内容审核报告
 
 {self.state.review_output}
+
+## 五、视频生产包
+
+{self.state.video_output}
 """
         return self.state.final_content
 
